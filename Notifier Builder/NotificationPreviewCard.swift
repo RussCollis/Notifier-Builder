@@ -1,61 +1,26 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Wallpaper Theme
+// MARK: - Blueprint Background
 
-enum WallpaperTheme: String, CaseIterable, Identifiable {
-    case sonoma = "Sonoma Gradient"
-    case sequoia = "Sequoia Forest"
-    case midnight = "Midnight Dark"
-    case graphite = "Graphite Minimal"
-    case blueprint = "Blueprint Grid"
-    
-    var id: String { rawValue }
-    
-    @ViewBuilder
-    var backgroundView: some View {
-        switch self {
-        case .sonoma:
-            LinearGradient(
-                colors: [Color(red: 0.98, green: 0.55, blue: 0.35), Color(red: 0.85, green: 0.25, blue: 0.45), Color(red: 0.35, green: 0.15, blue: 0.55)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .sequoia:
-            LinearGradient(
-                colors: [Color(red: 0.1, green: 0.25, blue: 0.2), Color(red: 0.15, green: 0.4, blue: 0.3), Color(red: 0.05, green: 0.15, blue: 0.15)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .midnight:
-            LinearGradient(
-                colors: [Color(red: 0.08, green: 0.1, blue: 0.18), Color(red: 0.03, green: 0.04, blue: 0.08)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .graphite:
-            LinearGradient(
-                colors: [Color(white: 0.25), Color(white: 0.12)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .blueprint:
-            ZStack {
-                Color(red: 0.06, green: 0.18, blue: 0.36)
-                // Grid overlay
-                Canvas { context, size in
-                    var path = Path()
-                    let step: CGFloat = 20
-                    for x in stride(from: 0, through: size.width, by: step) {
-                        path.move(to: CGPoint(x: x, y: 0))
-                        path.addLine(to: CGPoint(x: x, y: size.height))
-                    }
-                    for y in stride(from: 0, through: size.height, by: step) {
-                        path.move(to: CGPoint(x: 0, y: y))
-                        path.addLine(to: CGPoint(x: size.width, y: y))
-                    }
-                    context.stroke(path, with: .color(Color.white.opacity(0.08)), lineWidth: 0.5)
+/// Blueprint grid wallpaper used behind the simulated notification.
+struct BlueprintBackground: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.06, green: 0.18, blue: 0.36)
+            // Grid overlay
+            Canvas { context, size in
+                var path = Path()
+                let step: CGFloat = 20
+                for x in stride(from: 0, through: size.width, by: step) {
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
                 }
+                for y in stride(from: 0, through: size.height, by: step) {
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: size.width, y: y))
+                }
+                context.stroke(path, with: .color(Color.white.opacity(0.08)), lineWidth: 0.5)
             }
         }
     }
@@ -66,7 +31,6 @@ enum WallpaperTheme: String, CaseIterable, Identifiable {
 struct NotificationPreviewCard: View {
     @Binding var config: NotifierConfiguration
     @Binding var previewColorFilter: ColorScheme?
-    @State private var wallpaper: WallpaperTheme = .sonoma
     @State private var isHovering = false
     @State private var isHoveringDismiss = false
     @State private var actionFeedbackMessage: String? = nil
@@ -80,7 +44,7 @@ struct NotificationPreviewCard: View {
             // Preview Canvas (simulating macOS Desktop Corner)
             ZStack(alignment: .topTrailing) {
                 // Simulated Desktop Wallpaper
-                wallpaper.backgroundView
+                BlueprintBackground()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 // Menubar Simulation Strip
@@ -194,27 +158,6 @@ struct NotificationPreviewCard: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            
-            // Wallpaper Theme Picker
-            Menu {
-                ForEach(WallpaperTheme.allCases) { theme in
-                    Button {
-                        wallpaper = theme
-                    } label: {
-                        HStack {
-                            Text(theme.rawValue)
-                            if wallpaper == theme {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                Label(wallpaper.rawValue, systemImage: "photo")
-                    .font(.system(size: 11))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -223,135 +166,154 @@ struct NotificationPreviewCard: View {
     
     // MARK: - Authentic Notification Card
     
+    /// macOS keeps action buttons hidden until the pointer hovers over the notification.
+    private var showsActionButtons: Bool {
+        (hasVisibleButton1 || hasVisibleButton2) && isHovering
+    }
+    
+    private var hasVisibleButton1: Bool {
+        config.hasButton1 && !config.button1Label.isEmpty
+    }
+    
+    private var hasVisibleButton2: Bool {
+        config.hasButton2 && !config.button2Label.isEmpty
+    }
+    
+    /// Mirrors the macOS banner layout: app icon on the left, title and message beside it,
+    /// and action buttons stacked on the trailing edge.
     private var notificationCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Dismiss (X) button hover layer and Content
-            ZStack(alignment: .topTrailing) {
-                VStack(alignment: .leading, spacing: 8) {
-                    // Header: Icon + App Name + Timestamp
-                    HStack(spacing: 8) {
-                        // App / Rebrand Icon
-                        appIconView
-                        
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 4) {
-                                Text(config.title.isEmpty ? "Notifier" : config.title)
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                
-                                Spacer()
-                                
-                                Text("now")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
+        HStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                appIconView
+                
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(config.title.isEmpty ? "Notifier" : config.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
                     
                     // Subtitle (if present)
                     if !config.subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(config.subtitle)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 13))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
                     }
                     
                     // Body Message
                     if !config.message.isEmpty {
                         Text(config.message)
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13))
                             .foregroundColor(.primary)
-                            .lineSpacing(2)
+                            .lineLimit(4)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if config.removeMode == .all {
                         Text("[Clearing all delivered notifications]")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(.system(size: 12))
                             .italic()
                             .foregroundColor(.secondary)
                     }
                 }
-                .padding(14)
                 
-                // Dismiss 'X' Button (simulating macOS close action)
-                if isHovering || config.hasDismissAction {
-                    Button {
-                        handleDismissClicked()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(isHoveringDismiss ? Color.primary.opacity(0.18) : Color.primary.opacity(0.08))
-                                .frame(width: 18, height: 18)
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8, weight: .heavy))
-                                .foregroundColor(.primary.opacity(0.6))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                    .onHover { isHoveringDismiss = $0 }
-                    .help(config.hasDismissAction ? "Dismiss: \(config.dismissAction)" : "Dismiss notification")
-                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, 10)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleBodyClicked()
             }
             
-            // Action Buttons Row (for Alert style or configured buttons)
-            if config.hasButton1 || config.hasButton2 {
-                Divider()
-                    .opacity(0.4)
-                
-                HStack(spacing: 8) {
-                    Spacer()
-                    
-                    // Button 2 (Secondary Action)
-                    if config.hasButton2 && !config.button2Label.isEmpty {
-                        Button {
-                            handleButton2Clicked()
+            // Hover action: a single button shows its label, two buttons collapse into an "Options" menu
+            if showsActionButtons {
+                Group {
+                    if hasVisibleButton1 && hasVisibleButton2 {
+                        Menu {
+                            Button(config.button1Label, action: handleButton1Clicked)
+                            Button(config.button2Label, action: handleButton2Clicked)
                         } label: {
-                            Text(config.button2Label)
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
+                            hoverPill(title: "Options", showsChevron: true)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("\(config.button1Label): \(config.button1Action)\n\(config.button2Label): \(config.button2Action)")
+                    } else if hasVisibleButton1 {
+                        Button(action: handleButton1Clicked) {
+                            hoverPill(title: config.button1Label, showsChevron: false)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Triggers: \(config.button1Action)")
+                    } else {
+                        Button(action: handleButton2Clicked) {
+                            hoverPill(title: config.button2Label, showsChevron: false)
+                        }
+                        .buttonStyle(.plain)
                         .help("Triggers: \(config.button2Action)")
                     }
-                    
-                    // Button 1 (Primary Action)
-                    if config.hasButton1 && !config.button1Label.isEmpty {
-                        Button {
-                            handleButton1Clicked()
-                        } label: {
-                            Text(config.button1Label)
-                                .font(.system(size: 12, weight: .semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .help("Triggers: \(config.button1Action)")
-                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.primary.opacity(0.02))
+                .padding(.trailing, 12)
+                .transition(.opacity)
             }
         }
         .frame(width: 350)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .fixedSize(horizontal: false, vertical: true)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.28), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.25), radius: 16, x: 0, y: 8)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            handleBodyClicked()
+        // Dismiss 'X' Button sits on the top-left corner on hover, as on macOS
+        .overlay(alignment: .topLeading) {
+            if isHovering {
+                Button {
+                    handleDismissClicked()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(.regularMaterial)
+                            .frame(width: 20, height: 20)
+                        Circle()
+                            .fill(isHoveringDismiss ? Color.primary.opacity(0.15) : Color.clear)
+                            .frame(width: 20, height: 20)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundColor(.primary.opacity(0.7))
+                    }
+                    .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
+                }
+                .buttonStyle(.plain)
+                .offset(x: -7, y: -7)
+                .onHover { isHoveringDismiss = $0 }
+                .help(config.hasDismissAction ? "Dismiss: \(config.dismissAction)" : "Dismiss notification")
+            }
         }
+        .shadow(color: Color.black.opacity(0.25), radius: 16, x: 0, y: 8)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
             }
         }
+    }
+    
+    private func hoverPill(title: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .lineLimit(1)
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+        }
+        .font(.system(size: 12, weight: .medium))
+        .foregroundColor(.primary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(Color.primary.opacity(0.1)))
+        .contentShape(Capsule())
     }
     
     // MARK: - App Icon View
@@ -364,8 +326,8 @@ struct NotificationPreviewCard: View {
                     Image(nsImage: nsImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 28, height: 28)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
                     // Fallback to preset SF Symbol
                     ZStack {
@@ -375,11 +337,11 @@ struct NotificationPreviewCard: View {
                             endPoint: .bottomTrailing
                         )
                         Image(systemName: config.selectedIcon.systemSymbol)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             } else {
                 // Default Jamf / Notifier Icon
@@ -390,11 +352,11 @@ struct NotificationPreviewCard: View {
                         endPoint: .bottomTrailing
                     )
                     Image(systemName: "bell.badge.fill")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                 }
-                .frame(width: 28, height: 28)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
         .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)

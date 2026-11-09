@@ -84,17 +84,38 @@ class LiveNotificationRunner {
             content.sound = .default
         }
         
+        // Attach the configured buttons as notification actions via a category
+        var actions: [UNNotificationAction] = []
+        if config.hasButton1 && !config.button1Label.isEmpty {
+            actions.append(UNNotificationAction(identifier: "button1", title: config.button1Label, options: [.foreground]))
+        }
+        if config.hasButton2 && !config.button2Label.isEmpty {
+            actions.append(UNNotificationAction(identifier: "button2", title: config.button2Label, options: [.foreground]))
+        }
+        let categoryID = "notifier-builder-\(UUID().uuidString)"
+        let category = UNNotificationCategory(
+            identifier: categoryID,
+            actions: actions,
+            intentIdentifiers: [],
+            options: config.hasDismissAction ? [.customDismissAction] : []
+        )
+        content.categoryIdentifier = categoryID
+        
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
         
-        center.add(request) { [weak self] error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    // Fall back to AppleScript notification
-                    self?.runAppleScriptFallback(config: config, completion: completion)
-                } else {
-                    // Also trigger AppleScript to guarantee visual presentation even if macOS focus mode is active
-                    self?.runAppleScriptFallback(config: config, completion: completion)
+        center.setNotificationCategories([category])
+        // Reading the categories back ensures registration has completed before posting,
+        // otherwise the notification can be delivered without its action buttons.
+        center.getNotificationCategories { _ in
+            center.add(request) { error in
+                DispatchQueue.main.async {
+                    if error != nil {
+                        // AppleScript notifications cannot show buttons, so only use it as a fallback
+                        self.runAppleScriptFallback(config: config, completion: completion)
+                    } else {
+                        completion(.success("Live notification posted to top-right of screen!"))
+                    }
                 }
             }
         }
