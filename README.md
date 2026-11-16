@@ -2,6 +2,8 @@
 
 [![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=russcollis&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff)](https://www.buymeacoffee.com/russcollis)
 
+If this app saved you time or gave you a foundation to work from, please consider buying me a coffee - cheers :)
+
 <img src="Notifier%20Builder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" alt="Notifier Builder icon">
 
 A macOS app for designing, previewing and generating commands for Jamf Notifier notifications.
