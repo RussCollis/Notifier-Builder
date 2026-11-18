@@ -8,7 +8,7 @@ If this app saved you time or gave you a foundation to work from, please conside
 
 A macOS app for designing, previewing and generating commands for Jamf Notifier notifications.
 
-**Version:** 1.1
+**Version:** 1.1.1
 **Owner:** Russell Collis
 
 ## Features
@@ -22,7 +22,7 @@ A macOS app for designing, previewing and generating commands for Jamf Notifier 
 
 ## Install
 
-Download `NotifierBuilder-1.1.pkg` from this repo and open it. It installs **Notifier Builder.app** into `/Applications`.
+Download `NotifierBuilder-1.1.1.pkg` from this repo and open it. It installs **Notifier Builder.app** into `/Applications`.
 
 ## Build from source
 

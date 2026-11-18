@@ -28,7 +28,7 @@ fi
 echo "==> Packaging $APP_PATH (v$VERSION build $BUILD_NUMBER) into $PKG_OUTPUT..."
 pkgbuild --component "$APP_PATH" \
          --install-location "/Applications" \
-         --identifier "com.jamfconcepts.notifierbuilder" \
+         --identifier "com.russcollis.NotifierBuilder.pkg" \
          --version "$VERSION.$BUILD_NUMBER" \
          "$PKG_OUTPUT"
 
