@@ -44,8 +44,8 @@ enum RemoveMode: String, CaseIterable, Identifiable {
 
 /// Common macOS system sounds supported by Notifier
 enum SoundOption: String, CaseIterable, Identifiable {
-    case defaultSound = "default"
     case none = "none"
+    case defaultSound = "default"
     case basso = "Basso"
     case blow = "Blow"
     case bottle = "Bottle"
@@ -154,13 +154,14 @@ struct NotifierConfiguration: Equatable {
     var dismissAction: String = "/usr/bin/logger 'Notification dismissed by user'"
     
     // Sound
-    var sound: SoundOption = .defaultSound
+    var sound: SoundOption = .none
     var customSoundName: String = ""
     
     // Icon & Rebrand
     var selectedIcon: PresetIcon = .jamf
     var customRebrandPath: String = ""
     var enableRebrand: Bool = false
+    var applyIconWorkaround: Bool = false
     
     // Removal & Verbose
     var removeMode: RemoveMode = .none
@@ -217,6 +218,12 @@ struct NotifierConfiguration: Equatable {
         }
         if hasDismissAction && !dismissAction.isEmpty {
             checkAction(dismissAction, "Dismiss action")
+        }
+        if includesRebrand {
+            let ext = (effectiveRebrandPath as NSString).pathExtension.lowercased()
+            if ext != "png" && ext != "icns" {
+                issues.append("Rebrand image should be a PNG or ICNS file.")
+            }
         }
         return issues
     }
@@ -275,10 +282,6 @@ struct NotifierConfiguration: Equatable {
             args.append(contentsOf: ["--sound", soundStr])
         }
         
-        if enableRebrand && !effectiveRebrandPath.isEmpty {
-            args.append(contentsOf: ["--rebrand", effectiveRebrandPath])
-        }
-        
         if removeMode == .prior {
             args.append(contentsOf: ["--remove", "prior"])
         }
@@ -290,8 +293,84 @@ struct NotifierConfiguration: Equatable {
         return args
     }
 
-    /// Generates a single-line shell command
+    /// Generates a single-line shell command. When rebranding, the root-only
+    /// `--rebrand` call is chained ahead of the notification command.
     func generateCommandLine() -> String {
+        guard let rebrand = rebrandCommand(useSudo: true) else { return notificationCommandLine() }
+        guard let workaround = iconWorkaround(useSudo: true) else { return "\(rebrand); \(notificationCommandLine())" }
+        return "\(rebrand); \(workaround.singleLine); \(notificationCommandLine())"
+    }
+    
+    /// Generates a readable multiline bash script format with backslashes
+    func generateMultilineScript() -> String {
+        guard let rebrand = rebrandCommand(useSudo: true) else { return notificationMultilineScript() }
+        guard let workaround = iconWorkaround(useSudo: true) else { return "\(rebrand)\n\n\(notificationMultilineScript())" }
+        return "\(rebrand)\n\n\(workaround.multiline)\n\n\(notificationMultilineScript())"
+    }
+    
+    /// Notifier 4.x applies `--rebrand` and then exits without posting a notification,
+    /// so rebranding must be issued as its own command (as root) before the notification.
+    var includesRebrand: Bool {
+        enableRebrand && !effectiveRebrandPath.isEmpty
+    }
+    
+    /// Builds the standalone `--rebrand` command, or nil when rebranding is disabled.
+    func rebrandCommand(useSudo: Bool) -> String? {
+        guard includesRebrand else { return nil }
+        var parts: [String] = []
+        if useSudo { parts.append("/usr/bin/sudo") }
+        parts.append(quotedExecutable)
+        parts.append("--rebrand \"\(escapeForBash(effectiveRebrandPath))\"")
+        if verbose { parts.append("--verbose") }
+        return parts.joined(separator: " ")
+    }
+    
+    /// Workaround for Notifier issue #34: from macOS 26.4, notifications ignore the Finder
+    /// custom icon that `--rebrand` sets, because the helper apps declare `CFBundleIconName`
+    /// (an asset catalog icon), which takes priority. For each helper this writes the image
+    /// into `AppIcon.icns`, deletes `CFBundleIconName` so that `.icns` is used, ad-hoc re-signs
+    /// the helper to reseal the modified bundle, and re-registers it with Launch Services.
+    /// It then restarts the notification daemons so the new icon is picked up.
+    func iconWorkaround(useSudo: Bool) -> (singleLine: String, multiline: String)? {
+        guard includesRebrand && applyIconWorkaround else { return nil }
+        let sudo = useSudo ? "/usr/bin/sudo " : ""
+        let icon = escapeForBash(effectiveRebrandPath)
+        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+        
+        let header = "for helper in \"\(escapeForBash(helpersDirectory))\"/*.app; do"
+        // sips can't write ICNS above 512px, so the image is scaled to fit (-Z 512)
+        let body = [
+            "\(sudo)/usr/bin/sips -s format icns -Z 512 \"\(icon)\" --out \"$helper/Contents/Resources/AppIcon.icns\" >/dev/null",
+            "\(sudo)/usr/libexec/PlistBuddy -c \"Delete :CFBundleIconName\" \"$helper/Contents/Info.plist\" 2>/dev/null",
+            "\(sudo)/usr/bin/codesign --force --sign - --preserve-metadata=entitlements,flags,runtime \"$helper\"",
+            "\(sudo)\(lsregister) -f \"$helper\""
+        ]
+        let restart = "\(sudo)/usr/bin/killall usernoted NotificationCenter 2>/dev/null"
+        
+        let singleLine = "\(header) \(body.joined(separator: "; ")); done; \(restart)"
+        let multiline = ([
+            "# Workaround for macOS 26.4+ ignoring rebranded icons (Notifier issue #34)",
+            header
+        ] + body.map { "    \($0)" } + ["done", restart]).joined(separator: "\n")
+        return (singleLine, multiline)
+    }
+    
+    /// Folder holding Notifier's Alerts and Notifications helper apps
+    private var helpersDirectory: String {
+        let exec = binaryPath.isEmpty ? "/Applications/Utilities/Notifier.app/Contents/MacOS/Notifier" : binaryPath
+        if let range = exec.range(of: "/Contents/MacOS/") {
+            return String(exec[..<range.lowerBound]) + "/Contents/Helpers"
+        }
+        return "/Applications/Utilities/Notifier.app/Contents/Helpers"
+    }
+    
+    private var quotedExecutable: String {
+        let exec = binaryPath.isEmpty ? "/Applications/Utilities/Notifier.app/Contents/MacOS/Notifier" : binaryPath
+        return exec.contains(" ") ? "\"\(exec)\"" : exec
+    }
+    
+    /// Single-line notification command, excluding `--rebrand`
+    private func notificationCommandLine() -> String {
         var parts: [String] = []
         let exec = binaryPath.isEmpty ? "/Applications/Utilities/Notifier.app/Contents/MacOS/Notifier" : binaryPath
         parts.append(exec.contains(" ") ? "\"\(exec)\"" : exec)
@@ -343,10 +422,6 @@ struct NotifierConfiguration: Equatable {
             parts.append("--sound \"\(escapeForBash(soundStr))\"")
         }
         
-        if enableRebrand && !effectiveRebrandPath.isEmpty {
-            parts.append("--rebrand \"\(escapeForBash(effectiveRebrandPath))\"")
-        }
-        
         if removeMode == .prior {
             parts.append("--remove prior")
         }
@@ -358,8 +433,8 @@ struct NotifierConfiguration: Equatable {
         return parts.joined(separator: " ")
     }
     
-    /// Generates a readable multiline bash script format with backslashes
-    func generateMultilineScript() -> String {
+    /// Multiline notification command, excluding `--rebrand`
+    private func notificationMultilineScript() -> String {
         var lines: [String] = []
         let exec = binaryPath.isEmpty ? "/Applications/Utilities/Notifier.app/Contents/MacOS/Notifier" : binaryPath
         let execLine = exec.contains(" ") ? "\"\(exec)\"" : exec
@@ -403,9 +478,6 @@ struct NotifierConfiguration: Equatable {
         if !soundStr.isEmpty {
             lines.append("    --sound \"\(escapeForBash(soundStr))\" \\")
         }
-        if enableRebrand && !effectiveRebrandPath.isEmpty {
-            lines.append("    --rebrand \"\(escapeForBash(effectiveRebrandPath))\" \\")
-        }
         if removeMode == .prior {
             lines.append("    --remove prior \\")
         }
@@ -439,9 +511,9 @@ struct NotifierConfiguration: Equatable {
             exit 1
         fi
 
-        echo "Posting \(type.rawValue) notification to current user..."
+        \(jamfRebrandStep)echo "Posting \(type.rawValue) notification to current user..."
 
-        \(generateMultilineScript())
+        \(notificationMultilineScript())
 
         EXIT_CODE=$?
         if [[ $EXIT_CODE -eq 0 ]]; then
@@ -450,6 +522,18 @@ struct NotifierConfiguration: Equatable {
             echo "Failed to dispatch notification. Code: $EXIT_CODE"
         fi
         exit $EXIT_CODE
+        """
+    }
+    
+    /// Rebrand block for the Jamf script. Policies run as root, so sudo isn't needed.
+    private var jamfRebrandStep: String {
+        guard let rebrand = rebrandCommand(useSudo: false) else { return "" }
+        let workaround = iconWorkaround(useSudo: false).map { "\n\n\($0.multiline)" } ?? ""
+        return """
+        echo "Rebranding Notifier..."
+        \(rebrand)\(workaround)
+
+        
         """
     }
     
@@ -470,7 +554,6 @@ struct NotifierConfiguration: Equatable {
         
         let cleaned = command
             .replacingOccurrences(of: "\\\n", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard !cleaned.isEmpty else {
@@ -485,11 +568,6 @@ struct NotifierConfiguration: Equatable {
         }
         
         var idx = 0
-        // Check if first token is a binary executable path
-        if !tokens[0].hasPrefix("-") {
-            config.binaryPath = tokens[0]
-            idx += 1
-        }
         
         // Reset defaults before parsing flags
         config.title = ""
@@ -508,16 +586,76 @@ struct NotifierConfiguration: Equatable {
         config.sound = .none
         config.customSoundName = ""
         config.enableRebrand = false
+        config.applyIconWorkaround = false
         config.removeMode = .none
         config.verbose = false
         
+        // True at the start of each command (start of input, or after ';' / '&&'),
+        // where the next non-flag token is sudo or the Notifier binary path.
+        var atCommandStart = true
+        // True while skipping a non-Notifier command (shell keywords, echo, the icon workaround...)
+        var skippingCommand = false
+        let separators: Set<String> = [";", "&&", "||", "|"]
+        
         while idx < tokens.count {
-            let token = tokens[idx]
+            var token = tokens[idx]
+            
+            if separators.contains(token) {
+                atCommandStart = true
+                skippingCommand = false
+                idx += 1
+                continue
+            }
+            
+            if token == "CFBundleIconName" || token == "Delete :CFBundleIconName" {
+                config.applyIconWorkaround = true
+            }
+            
+            // A trailing ';' ends the current command, e.g. `--message "hi";`
+            var endsCommand = false
+            if token.hasSuffix(";") && token.count > 1 {
+                token = String(token.dropLast())
+                endsCommand = true
+            }
+            
+            if skippingCommand {
+                idx += 1
+                if endsCommand {
+                    atCommandStart = true
+                    skippingCommand = false
+                }
+                continue
+            }
+            
+            if atCommandStart && !token.hasPrefix("-") {
+                let name = (token as NSString).lastPathComponent.lowercased()
+                if name != "sudo" {
+                    if name.contains("notifier") {
+                        config.binaryPath = token
+                    } else {
+                        // Some other command; ignore its arguments
+                        skippingCommand = true
+                    }
+                    atCommandStart = false
+                }
+                idx += 1
+                if endsCommand {
+                    atCommandStart = true
+                    skippingCommand = false
+                }
+                continue
+            }
+            atCommandStart = false
             
             let nextVal: () -> String? = {
-                if idx + 1 < tokens.count && !tokens[idx + 1].hasPrefix("-") {
+                if !endsCommand && idx + 1 < tokens.count && !tokens[idx + 1].hasPrefix("-") && tokens[idx + 1] != ";" && tokens[idx + 1] != "&&" {
                     idx += 1
-                    return tokens[idx]
+                    let value = tokens[idx]
+                    if value.hasSuffix(";") {
+                        endsCommand = true
+                        return String(value.dropLast())
+                    }
+                    return value
                 }
                 return nil
             }
@@ -599,6 +737,7 @@ struct NotifierConfiguration: Equatable {
                     notes.append("Unrecognized option: \(token)")
                 }
             }
+            if endsCommand || tokens[idx].hasSuffix(";") { atCommandStart = true }
             idx += 1
         }
         
@@ -640,6 +779,10 @@ struct NotifierConfiguration: Equatable {
                 if !currentToken.isEmpty {
                     tokens.append(currentToken)
                     currentToken = ""
+                }
+                // An unquoted newline ends a shell command
+                if char.isNewline {
+                    tokens.append(";")
                 }
                 continue
             }

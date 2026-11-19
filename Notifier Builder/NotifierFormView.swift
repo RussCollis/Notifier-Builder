@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct NotifierFormView: View {
     @Binding var config: NotifierConfiguration
@@ -249,6 +250,13 @@ struct NotifierFormView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.mini)
+                            
+                            Button("{loggedInUser}") {
+                                config.button1Action += "{loggedInUser}"
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .help("Append the {loggedInUser} placeholder, resolved by Notifier at click time")
                         }
                     }
                     .padding(.leading, 22)
@@ -347,6 +355,11 @@ struct NotifierFormView: View {
                         .padding(.leading, 20)
                 }
             }
+            
+            Text("Tip: any action can use the {loggedInUser} placeholder, which Notifier replaces with the user who clicked, e.g. /usr/bin/say hello {loggedInUser}")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
@@ -416,18 +429,46 @@ struct NotifierFormView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Custom Image / ICNS Path:")
                                 .font(.system(size: 11))
-                            TextField("/path/to/icon.icns or .png", text: $config.customRebrandPath)
-                                .textFieldStyle(.roundedBorder)
+                            HStack(spacing: 6) {
+                                TextField("/path/to/icon.icns or .png", text: $config.customRebrandPath)
+                                    .textFieldStyle(.roundedBorder)
+                                Button("Browse…") {
+                                    browseForRebrandImage()
+                                }
+                                .controlSize(.small)
+                            }
                         }
                     } else {
-                        Text("Default Path: \(config.selectedIcon.defaultRebrandPath)")
-                            .font(.system(size: 10.5))
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 6) {
+                            Text("Default Path: \(config.selectedIcon.defaultRebrandPath)")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Browse…") {
+                                browseForRebrandImage()
+                            }
+                            .controlSize(.small)
+                        }
                     }
                     
-                    Text("Note: On production macOS clients, --rebrand modifies the app icon cache and requires root/MDM PPPC privilege.")
+                    Text("Note: Notifier 4.x applies --rebrand and then exits, so it's generated as a separate command run as root (sudo) before the notification. The calling process needs Full Disk Access or App Management via PPPC.")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle(isOn: $config.applyIconWorkaround) {
+                        Text("Apply macOS 26.4+ icon fix (Notifier issue #34)")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .toggleStyle(.checkbox)
+                    .help("Writes the icon into Notifier's helper apps so notifications show it on macOS 26.4 and later")
+
+                    if config.applyIconWorkaround {
+                        Text("From macOS 26.4, notifications ignore the icon --rebrand sets. This step writes the image into each Notifier helper's AppIcon.icns, removes CFBundleIconName, ad-hoc re-signs the helpers and restarts the notification daemons. Re-run it after updating Notifier.")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.leading, 20)
             }
@@ -435,6 +476,26 @@ struct NotifierFormView: View {
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .cornerRadius(10)
+    }
+    
+    /// Lets the user pick a PNG or ICNS file and switches the icon to the custom path
+    private func browseForRebrandImage() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Rebrand Image"
+        panel.message = "Select a PNG or ICNS image to use as the Notifier icon."
+        panel.allowedContentTypes = [.png, .icns]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        
+        let currentPath = config.effectiveRebrandPath
+        if !currentPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: currentPath).deletingLastPathComponent()
+        }
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            config.selectedIcon = .custom
+            config.customRebrandPath = url.path
+        }
     }
     
     // MARK: - Section 7: Advanced / Removal & Debug

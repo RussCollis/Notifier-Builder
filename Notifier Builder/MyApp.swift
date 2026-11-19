@@ -26,5 +26,13 @@ struct MyApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            // Replace the default Help item with a link to the Jamf Notifier documentation
+            CommandGroup(replacing: .help) {
+                if let docsURL = URL(string: "https://github.com/Jamf-Concepts/Notifier/blob/main/README.md") {
+                    Link("Jamf Notifier Documentation", destination: docsURL)
+                }
+            }
+        }
     }
 }

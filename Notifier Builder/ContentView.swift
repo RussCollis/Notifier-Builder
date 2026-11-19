@@ -29,6 +29,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 880, minHeight: 650)
         .navigationTitle("Notifier Builder")
+        // Hide the system title text; the custom title item already shows the app name
+        .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 8) {
@@ -45,7 +47,9 @@ struct ContentView: View {
                     }
                 }
             }
-            
+            // Drop the Liquid Glass capsule macOS draws behind toolbar items
+            .sharedBackgroundVisibility(.hidden)
+
             ToolbarItemGroup(placement: .primaryAction) {
                 // Presets Quick Menu
                 Menu {
@@ -86,12 +90,19 @@ struct ContentView: View {
             
             Spacer()
             
-            Text("v4.0 Spec")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.primary.opacity(0.08))
-                .clipShape(Capsule())
+            if let repoURL = URL(string: "https://github.com/Jamf-Concepts/Notifier") {
+                Link(destination: repoURL) {
+                    Text("v4.0.1 Spec")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.08))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Open Jamf Notifier on GitHub")
+                .pointerStyle(.link)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
